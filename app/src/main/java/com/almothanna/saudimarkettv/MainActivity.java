@@ -27,6 +27,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -39,7 +40,7 @@ public class MainActivity extends Activity {
     private static final String ENERGY_BRENT_URL = "https://energypriceapi.com/brent";
 
     private static final long AUTO_REFRESH_MS = 5 * 60 * 1000L;
-    private static final long COMMODITY_REFRESH_MS = 60 * 1000L;
+    private static final long COMMODITY_REFRESH_MS = 10 * 1000L;
 
     private WebView webView;
     private ProgressBar progressBar;
@@ -52,6 +53,7 @@ public class MainActivity extends Activity {
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService commodityExecutor = Executors.newSingleThreadExecutor();
+    private final AtomicBoolean commodityFetchInProgress = new AtomicBoolean(false);
 
     private final Runnable refreshRunnable = new Runnable() {
         @Override
@@ -102,7 +104,7 @@ public class MainActivity extends Activity {
         webView.requestFocus();
 
         handler.postDelayed(refreshRunnable, AUTO_REFRESH_MS);
-        handler.postDelayed(commodityRefreshRunnable, 1500L);
+        handler.postDelayed(commodityRefreshRunnable, 1000L);
     }
 
     private void configureWebView() {
@@ -169,44 +171,50 @@ public class MainActivity extends Activity {
     }
 
     private void refreshCommodities() {
+        if (!commodityFetchInProgress.compareAndSet(false, true)) return;
+
         commodityExecutor.submit(() -> {
-            boolean goldOk = false;
-            boolean brentOk = false;
-
             try {
-                String goldJson = fetchUrl(GOLD_URL);
-                Double parsedGold = parseGoldPrice(goldJson);
-                if (parsedGold != null && parsedGold >= 500 && parsedGold <= 10000) {
-                    goldPrice = String.format(Locale.US, "%.2f", parsedGold);
-                    goldStatus = "مباشر • تحديث كل دقيقة";
-                    goldOk = true;
-                }
-            } catch (Exception ignored) {
-            }
+                boolean goldOk = false;
+                boolean brentOk = false;
 
-            try {
-                String energyHtml = fetchUrl(ENERGY_HOME_URL);
-                Double parsedBrent = parseBrentPrice(energyHtml);
-                if (parsedBrent == null) {
-                    energyHtml = fetchUrl(ENERGY_BRENT_URL);
-                    parsedBrent = parseBrentPrice(energyHtml);
+                try {
+                    String goldJson = fetchUrl(GOLD_URL);
+                    Double parsedGold = parseGoldPrice(goldJson);
+                    if (parsedGold != null && parsedGold >= 500 && parsedGold <= 10000) {
+                        goldPrice = String.format(Locale.US, "%.2f", parsedGold);
+                        goldStatus = "تحديث كل 10 ثوانٍ";
+                        goldOk = true;
+                    }
+                } catch (Exception ignored) {
                 }
-                if (parsedBrent != null && parsedBrent >= 20 && parsedBrent <= 300) {
-                    brentPrice = String.format(Locale.US, "%.2f", parsedBrent);
-                    brentStatus = "سعر حالي • تحديث كل دقيقة";
-                    brentOk = true;
+
+                try {
+                    String energyHtml = fetchUrl(ENERGY_HOME_URL);
+                    Double parsedBrent = parseBrentPrice(energyHtml);
+                    if (parsedBrent == null) {
+                        energyHtml = fetchUrl(ENERGY_BRENT_URL);
+                        parsedBrent = parseBrentPrice(energyHtml);
+                    }
+                    if (parsedBrent != null && parsedBrent >= 20 && parsedBrent <= 300) {
+                        brentPrice = String.format(Locale.US, "%.2f", parsedBrent);
+                        brentStatus = "تحديث كل 10 ثوانٍ";
+                        brentOk = true;
+                    }
+                } catch (Exception ignored) {
                 }
-            } catch (Exception ignored) {
-            }
 
-            if (!goldOk) {
-                goldStatus = goldPrice == null ? "تعذر جلب السعر" : "آخر قراءة محفوظة";
-            }
-            if (!brentOk) {
-                brentStatus = brentPrice == null ? "تعذر جلب السعر" : "آخر قراءة محفوظة";
-            }
+                if (!goldOk) {
+                    goldStatus = goldPrice == null ? "تعذر جلب السعر" : "آخر قراءة محفوظة";
+                }
+                if (!brentOk) {
+                    brentStatus = brentPrice == null ? "تعذر جلب السعر" : "آخر قراءة محفوظة";
+                }
 
-            handler.post(this::pushCommodityPricesToDashboard);
+                handler.post(this::pushCommodityPricesToDashboard);
+            } finally {
+                commodityFetchInProgress.set(false);
+            }
         });
     }
 
@@ -215,8 +223,8 @@ public class MainActivity extends Activity {
         try {
             URL url = new URL(urlString);
             connection = (HttpURLConnection) url.openConnection();
-            connection.setConnectTimeout(10000);
-            connection.setReadTimeout(12000);
+            connection.setConnectTimeout(8000);
+            connection.setReadTimeout(9000);
             connection.setInstanceFollowRedirects(true);
             connection.setRequestMethod("GET");
             connection.setRequestProperty("User-Agent",
