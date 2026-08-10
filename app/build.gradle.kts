@@ -10,8 +10,8 @@ android {
         applicationId = "com.almothanna.saudimarkettv"
         minSdk = 23
         targetSdk = 35
-        versionCode = 5
-        versionName = "2.1"
+        versionCode = 6
+        versionName = "2.2"
     }
 
     buildTypes {
