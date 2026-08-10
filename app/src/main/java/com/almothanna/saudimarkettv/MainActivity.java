@@ -39,12 +39,14 @@ public class MainActivity extends Activity {
     private static final String ENERGY_HOME_URL = "https://energypriceapi.com/";
     private static final String ENERGY_BRENT_URL = "https://energypriceapi.com/brent";
 
-    private static final long AUTO_REFRESH_MS = 5 * 60 * 1000L;
     private static final long COMMODITY_REFRESH_MS = 10 * 1000L;
+    private static final long READY_CHECK_INTERVAL_MS = 250L;
+    private static final int MAX_READY_CHECKS = 100;
 
     private WebView webView;
-    private ProgressBar progressBar;
+    private FrameLayout loadingOverlay;
     private String dashboardScript = "";
+    private int readinessChecks = 0;
 
     private volatile String goldPrice = null;
     private volatile String brentPrice = null;
@@ -54,14 +56,6 @@ public class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService commodityExecutor = Executors.newSingleThreadExecutor();
     private final AtomicBoolean commodityFetchInProgress = new AtomicBoolean(false);
-
-    private final Runnable refreshRunnable = new Runnable() {
-        @Override
-        public void run() {
-            refreshMarket();
-            handler.postDelayed(this, AUTO_REFRESH_MS);
-        }
-    };
 
     private final Runnable commodityRefreshRunnable = new Runnable() {
         @Override
@@ -82,28 +76,40 @@ public class MainActivity extends Activity {
                 + "\n" + readAsset("commodities_v23.js");
 
         FrameLayout root = new FrameLayout(this);
-        root.setBackgroundColor(Color.rgb(7, 19, 29));
+        root.setBackgroundColor(Color.rgb(0, 132, 213));
 
         webView = new WebView(this);
         webView.setBackgroundColor(Color.rgb(7, 19, 29));
         webView.setFocusable(true);
         webView.setFocusableInTouchMode(true);
+        webView.setAlpha(0f);
         root.addView(webView, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
         ));
 
-        progressBar = new ProgressBar(this);
+        loadingOverlay = new FrameLayout(this);
+        loadingOverlay.setBackgroundColor(Color.rgb(0, 132, 213));
+        loadingOverlay.setClickable(true);
+        loadingOverlay.setFocusable(true);
+
+        ProgressBar progressBar = new ProgressBar(this);
+        progressBar.setIndeterminate(true);
         FrameLayout.LayoutParams progressParams = new FrameLayout.LayoutParams(72, 72);
         progressParams.gravity = Gravity.CENTER;
-        root.addView(progressBar, progressParams);
+        loadingOverlay.addView(progressBar, progressParams);
+
+        root.addView(loadingOverlay, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+        ));
 
         setContentView(root);
         configureWebView();
+        showLoadingCover();
         webView.loadUrl(ALL_STOCKS_URL);
         webView.requestFocus();
 
-        handler.postDelayed(refreshRunnable, AUTO_REFRESH_MS);
         handler.postDelayed(commodityRefreshRunnable, 1000L);
     }
 
@@ -145,12 +151,14 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
-                progressBar.setVisibility(View.GONE);
-                scheduleDashboard(400);
-                scheduleDashboard(1400);
-                scheduleDashboard(3200);
-                scheduleDashboard(6000);
-                scheduleDashboard(10000);
+
+                scheduleDashboard(100);
+                scheduleDashboard(350);
+                scheduleDashboard(800);
+                scheduleDashboard(1500);
+                scheduleDashboard(2800);
+                scheduleDashboard(5000);
+                handler.postDelayed(MainActivity.this::checkDashboardReady, 400L);
             }
         });
     }
@@ -161,12 +169,57 @@ public class MainActivity extends Activity {
 
     private void injectDashboard() {
         if (webView == null || dashboardScript == null || dashboardScript.isEmpty()) return;
-        webView.evaluateJavascript(dashboardScript, value -> pushCommodityPricesToDashboard());
+        webView.evaluateJavascript(dashboardScript, value -> {
+            pushCommodityPricesToDashboard();
+            checkDashboardReady();
+        });
+    }
+
+    private void showLoadingCover() {
+        readinessChecks = 0;
+        handler.removeCallbacks(readyCheckRunnable);
+        if (webView != null) webView.setAlpha(0f);
+        if (loadingOverlay != null) loadingOverlay.setVisibility(View.VISIBLE);
+    }
+
+    private void revealDashboard() {
+        handler.removeCallbacks(readyCheckRunnable);
+        if (webView != null) webView.setAlpha(1f);
+        if (loadingOverlay != null) loadingOverlay.setVisibility(View.GONE);
+        if (webView != null) webView.requestFocus();
+    }
+
+    private final Runnable readyCheckRunnable = this::checkDashboardReady;
+
+    private void checkDashboardReady() {
+        if (webView == null) return;
+
+        String checkScript =
+                "(function(){" +
+                "var d=document.getElementById('saudi-tv-dashboard');" +
+                "var t=document.getElementById('saudi-tv-table');" +
+                "var rows=t?t.querySelectorAll('tbody tr').length:0;" +
+                "var tasi=document.getElementById('saudi-tv-tasi-value');" +
+                "return !!(d&&t&&rows>0&&tasi&&tasi.textContent&&tasi.textContent.trim()!=='—');" +
+                "})()";
+
+        webView.evaluateJavascript(checkScript, value -> {
+            if ("true".equals(value)) {
+                revealDashboard();
+                return;
+            }
+
+            readinessChecks++;
+            if (readinessChecks < MAX_READY_CHECKS) {
+                handler.removeCallbacks(readyCheckRunnable);
+                handler.postDelayed(readyCheckRunnable, READY_CHECK_INTERVAL_MS);
+            }
+        });
     }
 
     private void refreshMarket() {
         if (webView == null) return;
-        progressBar.setVisibility(View.VISIBLE);
+        showLoadingCover();
         webView.reload();
     }
 
