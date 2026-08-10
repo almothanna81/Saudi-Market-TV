@@ -107,8 +107,76 @@ public class MainActivity extends Activity {
             public void onPageFinished(WebView view, String url) {
                 progressBar.setVisibility(View.GONE);
                 super.onPageFinished(view, url);
+
+                // The Saudi Exchange ticker is populated dynamically, so try a few times
+                // after the page reports that it has finished loading.
+                scheduleTickerMove(1200);
+                scheduleTickerMove(3500);
+                scheduleTickerMove(7000);
             }
         });
+    }
+
+    private void scheduleTickerMove(long delayMs) {
+        refreshHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                moveMarketTickerToTop();
+            }
+        }, delayMs);
+    }
+
+    private void moveMarketTickerToTop() {
+        if (webView == null) {
+            return;
+        }
+
+        String script =
+                "(function(){" +
+                "try{" +
+                "var marker='saudi-tv-market-ticker';" +
+                "var ticker=document.getElementById(marker);" +
+                "function findTicker(){" +
+                "var els=document.querySelectorAll('body *');" +
+                "var best=null,bestScore=-1;" +
+                "for(var i=0;i<els.length;i++){" +
+                "var el=els[i];" +
+                "var r=el.getBoundingClientRect();" +
+                "var cs=window.getComputedStyle(el);" +
+                "if(r.width<window.innerWidth*0.55||r.height<25||r.height>140)continue;" +
+                "if(r.bottom<window.innerHeight-10||r.top>window.innerHeight)continue;" +
+                "if(cs.position!=='fixed'&&cs.position!=='sticky'&&cs.bottom==='auto')continue;" +
+                "var txt=(el.innerText||'').replace(/\\s+/g,' ').trim();" +
+                "if(txt.length<8)continue;" +
+                "var score=0;" +
+                "if(/%|٪/.test(txt))score+=5;" +
+                "var nums=txt.match(/\\d[\\d,.]*/g);" +
+                "score+=Math.min(nums?nums.length:0,8);" +
+                "if(/تاسي|السوق|أنابيب|الراجحي|أرامكو|سابك|أكوا|أماك/.test(txt))score+=4;" +
+                "if(r.bottom>=window.innerHeight-2)score+=2;" +
+                "if(r.width>=window.innerWidth*0.90)score+=2;" +
+                "if(score>bestScore){best=el;bestScore=score;}" +
+                "}" +
+                "return bestScore>=5?best:null;" +
+                "}" +
+                "if(!ticker){ticker=findTicker();if(!ticker)return 'ticker-not-found';ticker.id=marker;}" +
+                "ticker.style.setProperty('position','fixed','important');" +
+                "ticker.style.setProperty('top','0px','important');" +
+                "ticker.style.setProperty('bottom','auto','important');" +
+                "ticker.style.setProperty('left','0px','important');" +
+                "ticker.style.setProperty('right','0px','important');" +
+                "ticker.style.setProperty('width','100%','important');" +
+                "ticker.style.setProperty('max-width','none','important');" +
+                "ticker.style.setProperty('margin','0','important');" +
+                "ticker.style.setProperty('transform','none','important');" +
+                "ticker.style.setProperty('z-index','2147483647','important');" +
+                "var h=Math.ceil(ticker.getBoundingClientRect().height);" +
+                "if(h>0&&h<160){document.body.style.setProperty('padding-top',h+'px','important');}" +
+                "return 'ticker-moved:'+h;" +
+                "}catch(e){return 'ticker-error:'+e.message;}" +
+                "})();";
+
+        webView.evaluateJavascript(script, null);
     }
 
     private void enterImmersiveMode() {
@@ -147,7 +215,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        refreshHandler.removeCallbacks(refreshRunnable);
+        refreshHandler.removeCallbacksAndMessages(null);
         if (webView != null) {
             webView.stopLoading();
             webView.destroy();
