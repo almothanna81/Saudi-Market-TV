@@ -48,7 +48,7 @@ public class MainActivity extends Activity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         enterImmersiveMode();
 
-        dashboardScript = readAsset("dashboard_v21.js");
+        dashboardScript = readAsset("dashboard_v21.js") + "\n" + readAsset("ticker_fix_v22.js");
 
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.rgb(7, 19, 29));
