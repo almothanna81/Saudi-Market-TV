@@ -11,18 +11,17 @@
       style.id = 'saudi-tv-commodities-style';
       document.head.appendChild(style);
     }
+
     style.textContent = [
       '#saudi-tv-tasi{position:absolute!important;}',
-      '#saudi-tv-commodities{position:absolute;left:1.8vw;top:0;bottom:0;display:flex;align-items:center;gap:.85vw;direction:rtl;z-index:8;pointer-events:none;}',
-      '.saudi-tv-commodity{width:13.2vw;min-width:190px;height:7.5vh;min-height:58px;box-sizing:border-box;border-radius:10px;background:rgba(2,37,61,.34);border:1px solid rgba(255,255,255,.24);display:flex;flex-direction:column;justify-content:center;padding:.55vh 1vw;box-shadow:0 2px 9px rgba(0,0,0,.12);}',
-      '.saudi-tv-commodity.gold{border-right:5px solid #f2c94c;}',
-      '.saudi-tv-commodity.brent{border-right:5px solid #d7eef9;}',
-      '.saudi-tv-commodity-title{font-size:1.03vw;font-weight:800;color:#f6fbff;line-height:1.05;text-align:right;}',
-      '.saudi-tv-commodity-line{display:flex;align-items:baseline;gap:.42vw;direction:ltr;margin-top:.3vh;}',
-      '.saudi-tv-commodity-price{font-size:1.55vw;font-weight:900;color:#ffffff;letter-spacing:.01em;}',
-      '.saudi-tv-commodity-unit{font-size:.78vw;font-weight:700;color:#d9edf7;direction:rtl;}',
-      '.saudi-tv-commodity-status{font-size:.63vw;color:#b8d2df;margin-top:.05vh;text-align:right;min-height:.7em;}',
-      '@media (max-width:1280px){#saudi-tv-commodities{left:16px;gap:10px}.saudi-tv-commodity{width:185px;min-width:185px}.saudi-tv-commodity-title{font-size:15px}.saudi-tv-commodity-price{font-size:22px}.saudi-tv-commodity-unit{font-size:11px}.saudi-tv-commodity-status{font-size:9px}}'
+      '#saudi-tv-commodities{position:absolute;left:2.6vw;top:0;bottom:0;width:29vw;display:flex;align-items:center;justify-content:flex-start;direction:rtl;z-index:8;pointer-events:none;}',
+      '.saudi-tv-commodity{height:62%;min-height:58px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:center;padding:0 1.65vw;background:transparent;border:0;border-radius:0;box-shadow:none;}',
+      '.saudi-tv-commodity.gold{width:14.5vw;border-left:1px solid rgba(255,255,255,.28);}',
+      '.saudi-tv-commodity.brent{width:14.5vw;}',
+      '.saudi-tv-commodity-title{font-size:1.18vw;font-weight:800;color:#f5fbff;line-height:1;text-align:right;margin-bottom:.62vh;}',
+      '.saudi-tv-commodity-price{font-size:2.05vw;font-weight:900;color:#ffffff;line-height:1;direction:ltr;text-align:right;letter-spacing:.01em;}',
+      '.saudi-tv-commodity-unit,.saudi-tv-commodity-status{display:none!important;}',
+      '@media (max-width:1280px){#saudi-tv-commodities{left:24px;width:390px}.saudi-tv-commodity.gold,.saudi-tv-commodity.brent{width:195px;padding:0 20px}.saudi-tv-commodity-title{font-size:18px}.saudi-tv-commodity-price{font-size:30px}}'
     ].join('');
 
     var box = document.getElementById('saudi-tv-commodities');
@@ -31,14 +30,12 @@
       box.id = 'saudi-tv-commodities';
       box.innerHTML =
         '<div class="saudi-tv-commodity gold">' +
-          '<div class="saudi-tv-commodity-title">الذهب <span style="opacity:.72;font-size:.8em">XAU</span></div>' +
-          '<div class="saudi-tv-commodity-line"><span id="saudi-tv-gold-price" class="saudi-tv-commodity-price">—</span><span class="saudi-tv-commodity-unit">دولار / أونصة</span></div>' +
-          '<div id="saudi-tv-gold-status" class="saudi-tv-commodity-status">جارٍ التحديث…</div>' +
+          '<div class="saudi-tv-commodity-title">الذهب</div>' +
+          '<div id="saudi-tv-gold-price" class="saudi-tv-commodity-price">—</div>' +
         '</div>' +
         '<div class="saudi-tv-commodity brent">' +
           '<div class="saudi-tv-commodity-title">خام برنت</div>' +
-          '<div class="saudi-tv-commodity-line"><span id="saudi-tv-brent-price" class="saudi-tv-commodity-price">—</span><span class="saudi-tv-commodity-unit">دولار / برميل</span></div>' +
-          '<div id="saudi-tv-brent-status" class="saudi-tv-commodity-status">جارٍ التحديث…</div>' +
+          '<div id="saudi-tv-brent-price" class="saudi-tv-commodity-price">—</div>' +
         '</div>';
       tasi.appendChild(box);
     }
@@ -53,23 +50,17 @@
       return;
     }
     var n = Number(value);
-    el.textContent = isFinite(n) ? '$' + n.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) : String(value);
+    el.textContent = isFinite(n)
+      ? '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : String(value);
   }
 
-  window.saudiTvSetCommodities = function (gold, brent, goldStatus, brentStatus) {
+  window.saudiTvSetCommodities = function (gold, brent) {
     if (!ensureCommodityUi()) return;
     setPrice('saudi-tv-gold-price', gold);
     setPrice('saudi-tv-brent-price', brent);
-    var gs = document.getElementById('saudi-tv-gold-status');
-    var bs = document.getElementById('saudi-tv-brent-status');
-    if (gs) gs.textContent = goldStatus || '';
-    if (bs) bs.textContent = brentStatus || '';
   };
 
-  function keepUiAlive() {
-    ensureCommodityUi();
-  }
-
-  keepUiAlive();
-  setInterval(keepUiAlive, 2000);
+  ensureCommodityUi();
+  setInterval(ensureCommodityUi, 2000);
 })();
