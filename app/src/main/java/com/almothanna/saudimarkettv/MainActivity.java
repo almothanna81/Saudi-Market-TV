@@ -40,12 +40,16 @@ public class MainActivity extends Activity {
     private static final String ENERGY_BRENT_URL = "https://energypriceapi.com/brent";
 
     private static final long COMMODITY_REFRESH_MS = 10 * 1000L;
+    private static final long MARKET_REFRESH_MS = 15 * 1000L;
     private static final long READY_CHECK_INTERVAL_MS = 250L;
     private static final int MAX_READY_CHECKS = 100;
 
     private WebView webView;
+    private WebView dataWebView;
     private FrameLayout loadingOverlay;
     private String dashboardScript = "";
+    private String extractorScript = "";
+    private String latestMarketPayloadLiteral = null;
     private int readinessChecks = 0;
 
     private volatile String goldPrice = null;
@@ -65,6 +69,8 @@ public class MainActivity extends Activity {
         }
     };
 
+    private final Runnable marketRefreshRunnable = this::loadFreshMarketSource;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -73,10 +79,25 @@ public class MainActivity extends Activity {
 
         dashboardScript = readAsset("dashboard_v21.js")
                 + "\n" + readAsset("ticker_fix_v22.js")
-                + "\n" + readAsset("commodities_v23.js");
+                + "\n" + readAsset("commodities_v23.js")
+                + "\n" + readAsset("live_market_v26.js");
+        extractorScript = readAsset("extractor_v26.js");
 
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.rgb(0, 132, 213));
+
+        dataWebView = new WebView(this);
+        dataWebView.setBackgroundColor(Color.TRANSPARENT);
+        dataWebView.setAlpha(0f);
+        dataWebView.setFocusable(false);
+        dataWebView.setFocusableInTouchMode(false);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
+            dataWebView.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+        }
+        root.addView(dataWebView, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+        ));
 
         webView = new WebView(this);
         webView.setBackgroundColor(Color.rgb(7, 19, 29));
@@ -105,16 +126,19 @@ public class MainActivity extends Activity {
         ));
 
         setContentView(root);
-        configureWebView();
+        configureMainWebView();
+        configureDataWebView();
+
         showLoadingCover();
         webView.loadUrl(ALL_STOCKS_URL);
         webView.requestFocus();
 
         handler.postDelayed(commodityRefreshRunnable, 1000L);
+        handler.postDelayed(marketRefreshRunnable, 3500L);
     }
 
-    private void configureWebView() {
-        WebSettings settings = webView.getSettings();
+    private void configureCommonWebSettings(WebView target) {
+        WebSettings settings = target.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setDatabaseEnabled(true);
@@ -139,9 +163,12 @@ public class MainActivity extends Activity {
         CookieManager cookieManager = CookieManager.getInstance();
         cookieManager.setAcceptCookie(true);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            cookieManager.setAcceptThirdPartyCookies(webView, true);
+            cookieManager.setAcceptThirdPartyCookies(target, true);
         }
+    }
 
+    private void configureMainWebView() {
+        configureCommonWebSettings(webView);
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
@@ -151,7 +178,6 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
-
                 scheduleDashboard(100);
                 scheduleDashboard(350);
                 scheduleDashboard(800);
@@ -159,6 +185,29 @@ public class MainActivity extends Activity {
                 scheduleDashboard(2800);
                 scheduleDashboard(5000);
                 handler.postDelayed(MainActivity.this::checkDashboardReady, 400L);
+            }
+        });
+    }
+
+    private void configureDataWebView() {
+        configureCommonWebSettings(dataWebView);
+        dataWebView.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                return false;
+            }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                if (extractorScript != null && !extractorScript.isEmpty()) {
+                    dataWebView.evaluateJavascript(extractorScript, ignored -> {
+                        scheduleMarketExtraction(700L);
+                        scheduleMarketExtraction(1700L);
+                        scheduleMarketExtraction(3200L);
+                    });
+                }
+                scheduleNextMarketRefresh();
             }
         });
     }
@@ -171,6 +220,7 @@ public class MainActivity extends Activity {
         if (webView == null || dashboardScript == null || dashboardScript.isEmpty()) return;
         webView.evaluateJavascript(dashboardScript, value -> {
             pushCommodityPricesToDashboard();
+            pushLatestMarketDataToDashboard();
             checkDashboardReady();
         });
     }
@@ -186,6 +236,8 @@ public class MainActivity extends Activity {
         handler.removeCallbacks(readyCheckRunnable);
         if (webView != null) webView.setAlpha(1f);
         if (loadingOverlay != null) loadingOverlay.setVisibility(View.GONE);
+        pushLatestMarketDataToDashboard();
+        pushCommodityPricesToDashboard();
         if (webView != null) webView.requestFocus();
     }
 
@@ -217,10 +269,45 @@ public class MainActivity extends Activity {
         });
     }
 
+    private void loadFreshMarketSource() {
+        if (dataWebView == null) return;
+        handler.removeCallbacks(marketRefreshRunnable);
+        String freshUrl = ALL_STOCKS_URL + "&_tv=" + System.currentTimeMillis();
+        dataWebView.loadUrl(freshUrl);
+    }
+
+    private void scheduleNextMarketRefresh() {
+        handler.removeCallbacks(marketRefreshRunnable);
+        handler.postDelayed(marketRefreshRunnable, MARKET_REFRESH_MS);
+    }
+
+    private void scheduleMarketExtraction(long delayMs) {
+        handler.postDelayed(this::extractMarketDataFromSource, delayMs);
+    }
+
+    private void extractMarketDataFromSource() {
+        if (dataWebView == null) return;
+        dataWebView.evaluateJavascript(
+                "window.saudiTvExportMarketData?window.saudiTvExportMarketData():'';",
+                value -> {
+                    if (value == null || "null".equals(value) || "\"\"".equals(value)) return;
+                    latestMarketPayloadLiteral = value;
+                    pushLatestMarketDataToDashboard();
+                }
+        );
+    }
+
+    private void pushLatestMarketDataToDashboard() {
+        if (webView == null || latestMarketPayloadLiteral == null) return;
+        String script =
+                "if(window.saudiTvApplyMarketData){try{" +
+                "window.saudiTvApplyMarketData(JSON.parse(" + latestMarketPayloadLiteral + "));" +
+                "}catch(e){}}";
+        webView.evaluateJavascript(script, null);
+    }
+
     private void refreshMarket() {
-        if (webView == null) return;
-        showLoadingCover();
-        webView.reload();
+        loadFreshMarketSource();
     }
 
     private void refreshCommodities() {
@@ -417,6 +504,7 @@ public class MainActivity extends Activity {
         super.onResume();
         enterImmersiveMode();
         pushCommodityPricesToDashboard();
+        pushLatestMarketDataToDashboard();
     }
 
     @Override
@@ -443,9 +531,15 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         handler.removeCallbacksAndMessages(null);
         commodityExecutor.shutdownNow();
+        if (dataWebView != null) {
+            dataWebView.stopLoading();
+            dataWebView.destroy();
+            dataWebView = null;
+        }
         if (webView != null) {
             webView.stopLoading();
             webView.destroy();
+            webView = null;
         }
         super.onDestroy();
     }
